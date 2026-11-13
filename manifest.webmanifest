@@ -1,1 +1,1 @@
-{"name":"AI Пульт","short_name":"Пульт","start_url":"./","scope":"./","display":"standalone","background_color":"#111317","theme_color":"#111317","lang":"ru","icons":[{"src":"./icon.svg","sizes":"any","type":"image/svg+xml"},{"src":"./touch.png","sizes":"180x180","type":"image/png"}]}
+{"name":"AI Пульт","short_name":"Пульт","start_url":"./","scope":"./","display":"standalone","background_color":"#FAF9F5","theme_color":"#FAF9F5","lang":"ru","icons":[{"src":"./surf-icon.svg","sizes":"any","type":"image/svg+xml"},{"src":"./surf-touch.png","sizes":"180x180","type":"image/png"}]}

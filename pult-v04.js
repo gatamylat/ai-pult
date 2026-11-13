@@ -24,6 +24,9 @@ function setStatus(id, text) { $(id).textContent = text; }
 
 function renderModes() {
   const execute = $('mode').value === 'execute';
+  for (const input of document.querySelectorAll('[name="task-mode"]')) {
+    input.checked = input.value === $('mode').value;
+  }
   const available = keys();
   const select = $('provider');
   for (const option of select.options) {
@@ -46,14 +49,25 @@ function renderLibrary() {
   if (!items.length) list.textContent = 'Добавьте Skill, факт или текстовый документ.';
   for (const entry of items) {
     const li = document.createElement('li');
-    li.append(kindNames[entry.kind] + ' · ' + entry.title);
+    const label = document.createElement('div');
+    label.className = 'library-entry';
+    const kind = document.createElement('span');
+    kind.className = 'entry-kind';
+    kind.dataset.kind = entry.kind;
+    kind.textContent = kindNames[entry.kind];
+    const title = document.createElement('span');
+    title.textContent = entry.title;
+    label.append(kind, title);
+    li.append(label);
     const actions = document.createElement('div');
     actions.className = 'row';
-    actions.append(button('Открыть', () => openEditor(entry)), button('Удалить', async () => {
+    const remove = button('Удалить', async () => {
       if (!confirm('Удалить «' + entry.title + '»?')) return;
       try { await save(s => edit(s, null, entry.id)); }
       catch (error) { setStatus('library-status', error.message); }
-    }));
+    });
+    remove.className = 'delete-entry';
+    actions.append(button('Открыть', () => openEditor(entry)), remove);
     li.append(actions);
     list.append(li);
   }
@@ -216,7 +230,11 @@ $('task-form').addEventListener('submit', async event => {
   finally { busy = false; renderModes(); }
 });
 
-$('mode').addEventListener('change', () => { setStatus('status', ''); renderModes(); });
+document.querySelectorAll('[name="task-mode"]').forEach(input => input.addEventListener('change', () => {
+  $('mode').value = input.value;
+  setStatus('status', '');
+  renderModes();
+}));
 $('copy').addEventListener('click', async () => {
   const text = $('prompt-text').hidden ? $('answer').textContent : $('prompt-text').value;
   try { await navigator.clipboard.writeText(text); setStatus('status', 'Скопировано.'); }
@@ -242,8 +260,25 @@ $('remember').addEventListener('click', async () => {
     setStatus('status', 'Добавлено в память.');
   } catch (error) { setStatus('status', error.message); }
 });
+const menuToggle = $('menu-toggle');
+function setMenu(open) {
+  menuToggle.setAttribute('aria-expanded', String(open));
+  menuToggle.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
+}
+menuToggle.addEventListener('click', () => setMenu(menuToggle.getAttribute('aria-expanded') !== 'true'));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && menuToggle.getAttribute('aria-expanded') === 'true') {
+    setMenu(false);
+    menuToggle.focus();
+  }
+});
 document.querySelectorAll('[data-open]').forEach(node => node.addEventListener('click', () => {
-  if (state) $(node.dataset.open).showModal();
+  if (!state) return;
+  const dialog = $(node.dataset.open);
+  const menuVisible = menuToggle.getClientRects().length > 0;
+  setMenu(false);
+  dialog.showModal();
+  if (menuVisible) dialog.addEventListener('close', () => menuToggle.focus(), {once: true});
 }));
 document.querySelectorAll('[data-close]').forEach(node => node.addEventListener('click', () => node.closest('dialog').close()));
 $('new-entry').addEventListener('click', () => openEditor());
