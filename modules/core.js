@@ -11,6 +11,16 @@ export function validEntry(entry) {
     && (entry.conflict === undefined || entry.conflict === true);
 }
 
+function skillHeader(text) {
+  return text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? text;
+}
+
+export function entryTitle(entry) {
+  if (entry.kind !== 'skill' || !/^skill\.md(?: \(.*\))?$/i.test(entry.title)) return entry.title;
+  const name = skillHeader(entry.text).match(/^name:\s*([\w-]+)\s*$/m)?.[1];
+  return name ? entry.title.replace(/^skill\.md/i, name) : entry.title;
+}
+
 export function selectSources(task, library) {
   const stop = new Set(['как', 'что', 'для', 'этот', 'этого', 'это', 'предложи', 'изучи', 'сделай', 'нужно',
     'можно', 'чтобы', 'если', 'только', 'пока', 'сейчас', 'скажи', 'или', 'уже', 'какой']);
@@ -19,10 +29,10 @@ export function selectSources(task, library) {
   const score = text => [...tokens(text)].filter(word => words.has(word)).length;
   const names = ' ' + terms(task).join(' ') + ' ';
   const skills = library.filter(entry => entry.kind === 'skill').map(entry => {
-    const header = entry.text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? entry.text;
+    const header = skillHeader(entry.text);
     const name = header.match(/^name:\s*([\w-]+)\s*$/m)?.[1];
     const description = header.match(/^description:[ \t]*(.*(?:\r?\n[ \t]+[^\r\n]*)*)/m)?.[1];
-    const title = /^skill\.md$/i.test(entry.title) && name ? name : entry.title;
+    const title = entryTitle(entry);
     const explicit = [name, title].some(label => label && !/^skill\.md$/i.test(label) &&
       names.includes(' ' + terms(label).join(' ') + ' '));
     const scope = description?.split(/(?:Не применять|Не использовать|Do not use)/i)[0] ?? entry.text.slice(0, 500);

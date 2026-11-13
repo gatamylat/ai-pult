@@ -293,15 +293,25 @@ dialog label:not(.upload) { display: block; color: var(--muted); font-size: 13px
 dialog label > input, dialog label > textarea, dialog label > select { display: block; margin-top: 4px; }
 .setting-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .library-actions { margin-top: 8px; }
+.library-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; margin-top: 10px; }
+.library-tabs label:not(.upload) { margin: 0; }
+.library-tabs span { min-height: 44px; padding-inline: 4px; }
+#library-list li { padding-block: 0; }
+#library-list button {
+  width: 100%;
+  min-height: 48px;
+  justify-content: flex-start;
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
 #entry-form { padding: 10px 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+#entry-heading { overflow-wrap: anywhere; }
 #entry-form .row { margin-top: 8px; }
 .upload { position: relative; cursor: pointer; }
 .upload input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 ul { list-style: none; padding: 0; margin: 10px 0 0; color: var(--muted); }
 li { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 2px 8px; min-height: 38px; padding-block: 7px; border-top: 1px solid var(--line); }
-.library-entry { display: grid; gap: 1px; overflow-wrap: anywhere; min-width: 0; color: var(--text); }
-.entry-kind { font-size: 11px; color: var(--muted); }
-.entry-kind[data-kind="skill"] { color: var(--accent-ink); }
 .delete-entry { color: var(--danger); }
 #history-list button { width: 100%; justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
 
@@ -315,10 +325,6 @@ li { display: flex; justify-content: space-between; align-items: center; flex-wr
   dialog::before { display: none; }
 }
 
-@media (hover: hover) and (pointer: fine) {
-  li .delete-entry { opacity: 0; }
-  li:hover .delete-entry, li:focus-within .delete-entry { opacity: 1; }
-}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

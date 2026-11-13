@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="./surf-touch.png">
 <link rel="icon" href="./surf-icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Playfair+Display:wght@500;600&amp;display=swap">
-<link rel="stylesheet" href="./surf.css?v=4">
+<link rel="stylesheet" href="./surf.css?v=5">
 <title>AI Пульт</title>
 </head>
 <body>
@@ -92,27 +92,30 @@
   </main>
 </div>
 
-<dialog id="library">
-  <div class="panel-head"><h2>Библиотека</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-  <div class="row library-actions">
-    <button id="new-entry" type="button">Добавить запись</button>
-    <label class="upload">Загрузить файлы
-      <input type="file" id="files" accept=".txt,.md,.markdown,.csv,.json,.log" multiple>
-    </label>
-    <select id="import-kind" aria-label="Тип загружаемых файлов">
-      <option value="document">Документы</option>
-      <option value="skill">Skills</option>
-      <option value="memory">Память</option>
-    </select>
+<dialog id="library" aria-labelledby="library-heading">
+  <div class="panel-head"><h2 id="library-heading">Библиотека</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+  <div id="library-browser">
+    <fieldset class="segment library-tabs" aria-label="Раздел библиотеки">
+      <label><input type="radio" name="library-kind" value="memory" checked><span>Память</span></label>
+      <label><input type="radio" name="library-kind" value="skill"><span>Скиллы</span></label>
+      <label><input type="radio" name="library-kind" value="document"><span>Документы</span></label>
+    </fieldset>
+    <div class="row library-actions">
+      <button id="new-entry" type="button">Добавить запись</button>
+      <label class="upload">Загрузить файлы
+        <input type="file" id="files" accept=".txt,.md,.markdown,.csv,.json,.log" multiple>
+      </label>
+    </div>
+    <ul id="library-list"></ul>
   </div>
   <p id="library-status" role="status"></p>
   <form id="entry-form" hidden>
+    <h3 id="entry-heading" tabindex="-1"></h3>
     <label>Тип<select id="entry-kind"><option value="skill">Skill</option><option value="memory">Память</option><option value="document">Документ</option></select></label>
     <label>Название<input id="entry-title" required maxlength="180"></label>
     <label>Текст<textarea id="entry-text" required rows="7"></textarea></label>
-    <div class="row"><button class="primary" type="submit">Сохранить</button><button id="cancel-entry" type="button">Отмена</button></div>
+    <div class="row"><button class="primary" type="submit">Сохранить</button><button id="cancel-entry" type="button">Назад</button><button id="delete-entry" class="delete-entry" type="button" hidden>Удалить</button></div>
   </form>
-  <ul id="library-list"></ul>
 </dialog>
 
 <dialog id="history" aria-labelledby="history-heading">
@@ -165,6 +168,6 @@
   </section>
   <p id="settings-status" role="status"></p>
 </dialog>
-<script type="module" src="./pult-v04.js?v=5"></script>
+<script type="module" src="./pult-v04.js?v=6"></script>
 </body>
 </html>

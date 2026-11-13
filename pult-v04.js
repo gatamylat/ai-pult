@@ -1,4 +1,4 @@
-import {askModel, buildPrompt, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js?v=5';
+import {askModel, buildPrompt, entryTitle, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js?v=6';
 import {change, edit, entries, openStorage, read} from './modules/library.js?v=4';
 import {cloudIdentity, connectSync} from './modules/sync.js?v=4';
 import {renderMarkdown} from './modules/markdown.js';
@@ -47,33 +47,23 @@ function renderModes() {
   if (execute && !select.value) setStatus('status', 'Добавьте ключ Claude или DeepSeek в настройках.');
 }
 
+const libraryKind = () => document.querySelector('[name="library-kind"]:checked').value;
+
 function renderLibrary() {
   const list = $('library-list');
   list.replaceChildren();
-  const items = entries(state).sort((a, b) => a.title.localeCompare(b.title, 'ru'));
-  if (!items.length) list.textContent = 'Добавьте Skill, факт или текстовый документ.';
-  for (const entry of items) {
+  const items = entries(state).filter(entry => entry.kind === libraryKind())
+    .map(entry => ({entry, title: entryTitle(entry)}))
+    .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+  if (!items.length) list.textContent = 'В этом разделе пока нет записей.';
+  for (const {entry, title} of items) {
     const li = document.createElement('li');
-    const label = document.createElement('div');
-    label.className = 'library-entry';
-    const kind = document.createElement('span');
-    kind.className = 'entry-kind';
-    kind.dataset.kind = entry.kind;
-    kind.textContent = kindNames[entry.kind];
-    const title = document.createElement('span');
-    title.textContent = entry.title;
-    label.append(kind, title);
-    li.append(label);
-    const actions = document.createElement('div');
-    actions.className = 'row';
-    const remove = button('Удалить', async () => {
-      if (!confirm('Удалить «' + entry.title + '»?')) return;
-      try { await save(s => edit(s, null, entry.id)); }
-      catch (error) { setStatus('library-status', error.message); }
+    const open = button(title, () => {
+      const current = state.library[entry.id]?.entry;
+      if (current) openEditor(current);
     });
-    remove.className = 'delete-entry';
-    actions.append(button('Открыть', () => openEditor(entry)), remove);
-    li.append(actions);
+    open.dataset.entryId = entry.id;
+    li.append(open);
     list.append(li);
   }
 }
@@ -160,11 +150,23 @@ async function save(update, target = profile) {
 function openEditor(entry) {
   editingId = entry?.id;
   editingRevision = entry ? state.library[entry.id]?.rev ?? null : null;
+  $('library-browser').hidden = true;
   $('entry-form').hidden = false;
-  $('entry-kind').value = entry?.kind ?? 'document';
-  $('entry-title').value = entry?.title ?? '';
+  $('delete-entry').hidden = !entry;
+  $('entry-heading').textContent = entry ? entryTitle(entry) : 'Новая запись';
+  $('entry-kind').value = entry?.kind ?? libraryKind();
+  setStatus('library-status', '');
+  $('entry-title').value = entry ? entryTitle(entry) : '';
   $('entry-text').value = entry?.text ?? '';
-  $('entry-title').focus();
+  $('library').scrollTop = 0;
+  $('entry-heading').focus({preventScroll: true});
+}
+
+function closeEditor() {
+  $('entry-form').hidden = true;
+  $('library-browser').hidden = false;
+  const row = Array.from($('library-list').querySelectorAll('button')).find(node => node.dataset.entryId === editingId);
+  if ($('library').open) (row ?? $('new-entry')).focus();
 }
 
 function renderSources(editable) {
@@ -379,7 +381,27 @@ systemTheme.addEventListener('change', applyTheme);
 applyTheme();
 
 $('new-entry').addEventListener('click', () => openEditor());
-$('cancel-entry').addEventListener('click', () => { $('entry-form').hidden = true; });
+$('cancel-entry').addEventListener('click', () => {
+  setStatus('library-status', '');
+  closeEditor();
+});
+document.querySelectorAll('[name="library-kind"]').forEach(input => input.addEventListener('change', () => {
+  setStatus('library-status', '');
+  renderLibrary();
+}));
+$('delete-entry').addEventListener('click', async () => {
+  const id = editingId;
+  const revision = editingRevision;
+  if (!id || !confirm('Удалить «' + $('entry-heading').textContent + '»?')) return;
+  try {
+    await save(s => {
+      if (s.library[id]?.rev !== revision) throw new Error('Запись изменилась. Откройте её заново перед удалением.');
+      edit(s, null, id);
+    });
+    if (editingId === id) closeEditor();
+    setStatus('library-status', 'Запись удалена.');
+  } catch (error) { setStatus('library-status', error.message); }
+});
 $('entry-form').addEventListener('submit', async event => {
   event.preventDefault();
   const entry = {id: editingId ?? crypto.randomUUID(), kind: $('entry-kind').value,
@@ -387,14 +409,16 @@ $('entry-form').addEventListener('submit', async event => {
   try {
     let conflict;
     await save(s => { conflict = edit(s, entry, entry.id, editingRevision); });
-    $('entry-form').hidden = true;
+    document.querySelector('[name="library-kind"][value="' + entry.kind + '"]').checked = true;
+    renderLibrary();
+    closeEditor();
     setStatus('library-status', conflict ? 'Запись изменилась на другом устройстве. Ваш текст сохранён отдельной копией.' : 'Сохранено.');
   } catch (error) { setStatus('library-status', error.message); }
 });
 $('files').addEventListener('change', async event => {
   const files = Array.from(event.target.files);
   event.target.value = '';
-  const kind = $('import-kind').value;
+  const kind = libraryKind();
   const imported = [];
   const skipped = [];
   for (const file of files) {
@@ -434,7 +458,7 @@ async function setProfile(code) {
     currentThread = undefined;
     $('task').placeholder = 'Что нужно сделать?';
     $('result').hidden = true;
-    $('entry-form').hidden = true;
+    closeEditor();
     await refresh();
     $('sync-code').value = code;
     $('disconnect').hidden = !code;
