@@ -1,1 +1,121 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111317"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="./touch.png"><title>AI Пульт</title><style>:root{color-scheme:dark;font:16px system-ui;background:#111317;color:#f1f2f4}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:22px}main{width:min(100%,600px);display:grid;gap:16px}header{display:flex;justify-content:space-between;align-items:center}h1{font-size:25px}small{color:#9aa2ae}section,details{border:1px solid #353943;border-radius:16px;padding:20px;background:#1b1e24}h2{margin:0 0 8px}p{color:#bfc5d0;line-height:1.5}.agents{display:flex;justify-content:space-between;color:#bfc5d0;font-size:13px}button{border:0;border-radius:13px;background:#e7edf7;color:#15171c;padding:17px;font-weight:700;font-size:16px}button:disabled{opacity:.6}summary{cursor:pointer}label{display:block;margin:12px 0;color:#bfc5d0;font-size:13px}input{display:block;width:100%;margin-top:6px;padding:12px;border-radius:8px;border:1px solid #596170;background:#101217;color:white;font-size:16px}#status{text-align:center;color:#b6c0ce;font-size:13px;min-height:20px}#result{display:none;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}#result.visible{display:block}</style></head><body><main><header><h1>AI Пульт</h1><small>0.1</small></header><section><h2>germes-pult</h2><p>Изучить исходники и предложить, как упростить интерфейс, сохранив возможности.</p><div class="agents"><span>Kimi · анализ</span><span>DeepSeek · проверка</span></div></section><details id="settings"><summary>Ключи доступа · хранятся на iPhone</summary><label>GitHub token (чтение germes-pult)<input id="github" type="password" autocomplete="off"></label><label>Kimi API key<input id="kimi" type="password" autocomplete="off"></label><label>DeepSeek API key<input id="deepseek" type="password" autocomplete="off"></label><small>localStorage не защищённое хранилище. Используйте ограниченные ключи.</small></details><button id="run">Анализировать</button><div id="status" role="status"></div><section id="result"></section></main><script type="module" src="./pult.js"></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141615">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://www.gstatic.com https://*.googleapis.com https://api.anthropic.com https://api.deepseek.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./touch.png">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css">
+<title>AI Пульт</title>
+</head>
+<body>
+<main>
+  <header>
+    <h1>AI Пульт</h1>
+    <nav aria-label="Разделы">
+      <button type="button" data-open="library">Библиотека</button>
+      <button type="button" data-open="history">История</button>
+      <button type="button" data-open="settings">Настройки</button>
+    </nav>
+  </header>
+  <form id="task-form">
+    <label for="task">Задача</label>
+    <textarea id="task" rows="5" maxlength="12000" placeholder="Что нужно сделать?" required></textarea>
+    <div class="actions">
+      <div class="choices">
+        <label for="mode">Режим</label>
+        <select id="mode">
+          <option value="prompt">Собрать промпт</option>
+          <option value="execute">Выполнить задачу</option>
+        </select>
+        <label id="provider-field" hidden>Модель
+          <select id="provider" aria-label="Модель">
+            <option value="claude">Claude</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="together">Вместе</option>
+          </select>
+        </label>
+      </div>
+      <button type="submit" id="run" class="primary" disabled>Собрать промпт</button>
+    </div>
+  </form>
+  <p id="status" role="status"></p>
+  <section id="result" hidden aria-label="Результат">
+    <div class="result-head">
+      <h2 id="result-title">Результат</h2>
+      <div class="row"><button type="button" id="copy">Копировать</button><button type="button" id="new-task">Новая задача</button></div>
+    </div>
+    <details id="source-details">
+      <summary>Что вошло <span id="source-count"></span></summary>
+      <div id="sources"></div>
+    </details>
+    <label class="sr-only" for="prompt-text">Готовый промпт</label>
+    <textarea id="prompt-text" rows="12" hidden></textarea>
+    <div id="answer" hidden></div>
+    <div id="memory-proposal" hidden>
+      <label for="memory-text">Предложение для памяти</label>
+      <textarea id="memory-text" rows="3"></textarea>
+      <div class="row">
+        <button id="remember" type="button">Запомнить</button>
+        <button id="dismiss-memory" type="button">Отклонить</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog id="library">
+  <div class="panel-head"><h2>Библиотека</h2><button data-close type="button">Закрыть</button></div>
+  <div class="row">
+    <button id="new-entry" type="button">Добавить запись</button>
+    <label class="upload">Загрузить файлы
+      <input type="file" id="files" accept=".txt,.md,.markdown,.csv,.json,.log" multiple>
+    </label>
+    <select id="import-kind" aria-label="Тип загружаемых файлов">
+      <option value="document">Документы</option>
+      <option value="skill">Skills</option>
+      <option value="memory">Память</option>
+    </select>
+  </div>
+  <p id="library-status" role="status"></p>
+  <form id="entry-form" hidden>
+    <label>Тип<select id="entry-kind"><option value="skill">Skill</option><option value="memory">Память</option><option value="document">Документ</option></select></label>
+    <label>Название<input id="entry-title" required maxlength="180"></label>
+    <label>Текст<textarea id="entry-text" required rows="7"></textarea></label>
+    <div class="row"><button class="primary" type="submit">Сохранить</button><button id="cancel-entry" type="button">Отмена</button></div>
+  </form>
+  <ul id="library-list"></ul>
+</dialog>
+
+<dialog id="history">
+  <div class="panel-head"><h2>История</h2><button data-close type="button">Закрыть</button></div>
+  <ul id="history-list"></ul>
+</dialog>
+
+<dialog id="settings">
+  <div class="panel-head"><h2>Настройки</h2><button data-close type="button">Закрыть</button></div>
+  <h3>Модели</h3>
+  <label>Ключ Claude<input id="claude-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+  <label>Ключ DeepSeek<input id="deepseek-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+  <button id="save-keys" type="button">Сохранить ключи</button>
+  <h3>Личная библиотека на двух устройствах</h3>
+  <p>Сначала подключите личный код, затем добавляйте материалы. На втором устройстве введите тот же код. Чтобы перенести уже добавленные локальные материалы, используйте резервную копию.</p>
+  <label>Личный код<input id="sync-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32"></label>
+  <div class="row">
+    <button id="generate-code" type="button">Создать код</button>
+    <button id="connect" type="button">Подключить</button>
+    <button id="disconnect" type="button" hidden>Отключить</button>
+  </div>
+  <p id="sync-status" role="status">Локальная библиотека</p>
+  <h3>Резервная копия</h3>
+  <div class="row">
+    <button id="backup" type="button">Скачать копию</button>
+    <label class="upload">Восстановить из файла<input type="file" id="restore" accept=".json"></label>
+  </div>
+  <p id="settings-status" role="status"></p>
+</dialog>
+<script type="module" src="./pult.js"></script>
+</body>
+</html>
