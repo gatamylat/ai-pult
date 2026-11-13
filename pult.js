@@ -1,11 +1,416 @@
-import {run} from './modules/germes-pult.js';
-const ids=['github','kimi','deepseek'],controls=Object.fromEntries(ids.map(id=>[id,document.getElementById(id)])),status=document.getElementById('status'),button=document.getElementById('run'),result=document.getElementById('result'),settings=document.getElementById('settings'),storage='ai-pult.keys.v1';
-let saved={};try{saved=JSON.parse(localStorage.getItem(storage))||{}}catch{}
-for(const id of ids)controls[id].value=saved[id]||'';
-const keys=()=>Object.fromEntries(ids.map(id=>[id,controls[id].value.trim()]));settings.open=!Object.values(keys()).every(Boolean);
-for(const id of ids)controls[id].addEventListener('change',()=>{try{localStorage.setItem(storage,JSON.stringify(keys()))}catch{}});
-async function api(url,key,payload){let response;try{response=await fetch(url,{method:payload?'POST':'GET',headers:{Authorization:'Bearer '+key,Accept:'application/json',...(payload?{'Content-Type':'application/json'}:{})},...(payload?{body:JSON.stringify(payload)}:{})})}catch{throw Error('Браузер не может связаться с '+new URL(url).host+' (сеть или CORS).')}if(!response.ok)throw Error(new URL(url).host+': HTTP '+response.status+' — проверьте ключ или модель');return response.json()}
-async function githubFile(path,token){const data=await api('https://api.github.com/repos/gatamylat/germes-pult/contents/'+path.split('/').map(encodeURIComponent).join('/'),token);if(!data.content)throw Error('Не удалось прочитать '+path);return new TextDecoder().decode(Uint8Array.from(atob(data.content.replace(/\s/g,'')),c=>c.charCodeAt(0)))}
-async function model(provider,system,prompt,k){const kimi=provider==='kimi',url=kimi?'https://api.moonshot.ai/v1/chat/completions':'https://api.deepseek.com/chat/completions',data=await api(url,kimi?k.kimi:k.deepseek,{model:kimi?'kimi-k2.5':'deepseek-chat',messages:[{role:'system',content:system},{role:'user',content:prompt}],max_tokens:2200,stream:false}),answer=data?.choices?.[0]?.message?.content;if(typeof answer!=='string'||!answer.trim())throw Error(provider+' не вернул ответ');return answer.trim()}
-button.addEventListener('click',async()=>{const k=keys();if(!Object.values(k).every(Boolean)){settings.open=true;status.textContent='Введите три ключа';return}try{localStorage.setItem(storage,JSON.stringify(k))}catch{}button.disabled=true;result.classList.remove('visible');result.textContent='';try{status.textContent='Читаю исходники…';const answer=await run({githubFile:path=>githubFile(path,k.github),model:(provider,system,prompt)=>{status.textContent=provider==='kimi'?'Kimi анализирует…':'DeepSeek проверяет…';return model(provider,system,prompt,k)}});result.textContent=answer;result.classList.add('visible');status.textContent='Готово'}catch(e){status.textContent=e.message||'Ошибка'}finally{button.disabled=false}});
-if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
+import {askModel, buildPrompt, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js';
+import {change, edit, entries, openStorage, read} from './modules/library.js';
+import {cloudIdentity, connectSync} from './modules/sync.js';
+
+const $ = id => document.getElementById(id);
+const local = 'local';
+const keyName = 'ai-pult:model-';
+const cloudCodeName = 'ai-pult:library-code';
+const modes = {claude: 'Claude', deepseek: 'DeepSeek', together: 'Вместе'};
+const keys = () => Object.fromEntries(['claude', 'deepseek'].map(id => [id, localStorage.getItem(keyName + id) || '']));
+let profile = local;
+let state;
+let connection;
+let connectionAttempt = 0;
+let busy = false;
+let selectedSources = [];
+let excludedSources = new Set();
+let resultTask = '';
+let currentThread;
+let editingId;
+let editingRevision;
+
+function setStatus(id, text) { $(id).textContent = text; }
+
+function renderModes() {
+  const execute = $('mode').value === 'execute';
+  const available = keys();
+  const select = $('provider');
+  for (const option of select.options) {
+    const mode = option.value;
+    option.disabled = mode === 'together' ? !available.claude || !available.deepseek : !available[mode];
+  }
+  if (select.selectedIndex === -1 || select.selectedOptions[0].disabled) {
+    select.value = available.claude ? 'claude' : available.deepseek ? 'deepseek' : '';
+  }
+  $('provider-field').hidden = !execute;
+  $('run').textContent = execute ? 'Выполнить задачу' : 'Собрать промпт';
+  $('run').disabled = busy || !state || (execute && !select.value);
+  if (execute && !select.value) setStatus('status', 'Добавьте ключ Claude или DeepSeek в настройках.');
+}
+
+function renderLibrary() {
+  const list = $('library-list');
+  list.replaceChildren();
+  const items = entries(state).sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+  if (!items.length) list.textContent = 'Добавьте Skill, факт или текстовый документ.';
+  for (const entry of items) {
+    const li = document.createElement('li');
+    li.append(kindNames[entry.kind] + ' · ' + entry.title);
+    const actions = document.createElement('div');
+    actions.className = 'row';
+    actions.append(button('Открыть', () => openEditor(entry)), button('Удалить', async () => {
+      if (!confirm('Удалить «' + entry.title + '»?')) return;
+      try { await save(s => edit(s, null, entry.id)); }
+      catch (error) { setStatus('library-status', error.message); }
+    }));
+    li.append(actions);
+    list.append(li);
+  }
+}
+
+function button(label, handler) {
+  const node = document.createElement('button');
+  node.type = 'button';
+  node.textContent = label;
+  node.addEventListener('click', handler);
+  return node;
+}
+
+function renderHistory() {
+  const list = $('history-list');
+  list.replaceChildren();
+  if (!state.history.length) list.textContent = 'Здесь появятся выполненные задачи.';
+  for (const thread of state.history) {
+    const item = document.createElement('li');
+    item.append(button(thread.title, () => {
+      if (busy) return;
+      $('history').close();
+      currentThread = thread;
+      $('task').value = '';
+      $('task').placeholder = 'Что уточнить в этой задаче?';
+      $('mode').value = 'execute';
+      $('provider').value = thread.mode;
+      selectedSources = thread.sources ?? [];
+      excludedSources = new Set();
+      showResult('answer', thread.messages.at(-1).content, thread.note);
+      renderModes();
+    }));
+    list.append(item);
+  }
+}
+
+async function refresh() {
+  const current = profile;
+  const loaded = await read(current);
+  if (profile !== current) return;
+  state = loaded;
+  renderLibrary();
+  renderHistory();
+}
+
+async function save(update, target = profile) {
+  await change(target, update);
+  if (target !== profile) return;
+  await refresh();
+  connection?.schedule();
+}
+
+function openEditor(entry) {
+  editingId = entry?.id;
+  editingRevision = entry ? state.library[entry.id]?.rev ?? null : null;
+  $('entry-form').hidden = false;
+  $('entry-kind').value = entry?.kind ?? 'document';
+  $('entry-title').value = entry?.title ?? '';
+  $('entry-text').value = entry?.text ?? '';
+  $('entry-title').focus();
+}
+
+function renderSources(editable) {
+  const node = $('sources');
+  node.replaceChildren();
+  $('source-count').textContent = selectedSources.length ? '(' + (selectedSources.length - excludedSources.size) + ')' : '';
+  if (!selectedSources.length) node.textContent = 'Подходящих материалов в библиотеке не найдено.';
+  for (const source of selectedSources) {
+    const label = document.createElement('label');
+    if (editable) {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !excludedSources.has(source.id);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) excludedSources.delete(source.id);
+        else excludedSources.add(source.id);
+        if ($('prompt-text').value !== promptBuilt) {
+          const block = '### ' + source.title + '\n' + source.text;
+          if (!checkbox.checked && $('prompt-text').value.includes(block)) {
+            $('prompt-text').value = $('prompt-text').value.replace(block, '').replace(/\n{3,}/g, '\n\n').trim();
+          } else if (confirm('Пересобрать промпт с этим выбором материалов? Ручные правки будут заменены.')) {
+            rebuildPrompt();
+          } else {
+            checkbox.checked = !checkbox.checked;
+            if (checkbox.checked) excludedSources.delete(source.id);
+            else excludedSources.add(source.id);
+          }
+        } else rebuildPrompt();
+        $('source-count').textContent = '(' + (selectedSources.length - excludedSources.size) + ')';
+      });
+      label.append(checkbox, ' ');
+    }
+    label.append(kindNames[source.kind] + ' · ' + source.title);
+    node.append(label);
+  }
+}
+
+let promptBuilt = '';
+function rebuildPrompt() {
+  promptBuilt = buildPrompt(resultTask, selectedSources.filter(source => !excludedSources.has(source.id)));
+  $('prompt-text').value = promptBuilt;
+}
+
+function showResult(type, text, note, proposal = '') {
+  $('result').hidden = false;
+  $('result-title').textContent = type === 'prompt' ? 'Готовый промпт' : 'Ответ';
+  $('prompt-text').hidden = type !== 'prompt';
+  $('answer').hidden = type !== 'answer';
+  $('answer').textContent = type === 'answer' ? text : '';
+  $('prompt-text').value = type === 'prompt' ? text : '';
+  $('memory-proposal').hidden = !proposal;
+  $('memory-text').value = proposal;
+  setStatus('status', note || '');
+  renderSources(type === 'prompt');
+}
+
+const memoryInstruction = '\n\nЕсли в сообщении пользователя есть новый явно сообщённый факт или принятое им решение, полезное в будущем, можешь в самом конце предложить одну запись строкой «ПАМЯТЬ: текст». Предложения и догадки модели не предлагай как факты.';
+function separateProposal(answer) {
+  const match = answer.match(/\n\s*ПАМЯТЬ:\s*([^\n]{1,500})\s*$/u);
+  return match ? {answer: answer.slice(0, match.index).trim(), proposal: match[1].trim()} : {answer, proposal: ''};
+}
+
+$('task-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const task = $('task').value.trim();
+  if (!task || busy || !state) return;
+  const previous = currentThread;
+  const executionProfile = profile;
+  const continuing = $('mode').value === 'execute' && previous;
+  selectedSources = continuing ? previous.sources : selectSources(task, entries(state));
+  excludedSources = new Set();
+  resultTask = task;
+  const prompt = buildPrompt(task, selectedSources);
+  if ($('mode').value === 'prompt') {
+    promptBuilt = prompt;
+    showResult('prompt', prompt, selectedSources.length ? '' : 'Подходящих материалов не найдено. Можно добавить их в библиотеку.');
+    return;
+  }
+  const mode = $('provider').value;
+  if (!mode) return;
+  busy = true;
+  $('memory-proposal').hidden = true;
+  renderModes();
+  try {
+    const credentials = keys();
+    const messages = [...(continuing ? previous.messages : []), {role: 'user', content: (continuing ? task : prompt) + memoryInstruction}];
+    const response = await runTask(mode, messages,
+      (id, chat) => askModel(id, credentials[id], chat), text => setStatus('status', text));
+    if (executionProfile !== profile) return;
+    const {answer, proposal} = separateProposal(response.answer);
+    if (!answer) throw new Error('Модель не вернула ответ на задачу.');
+    const thread = {id: previous?.id ?? crypto.randomUUID(), title: previous?.title ?? task.slice(0, 100),
+      mode, messages: [...messages, {role: 'assistant', content: answer}], sources: selectedSources, note: response.note ?? ''};
+    currentThread = thread;
+    showResult('answer', answer, response.note, proposal);
+    $('task').value = '';
+    $('task').placeholder = 'Что уточнить в этой задаче?';
+    await save(s => { s.history = [thread, ...s.history.filter(t => t.id !== thread.id)].slice(0, 30); }, executionProfile);
+  } catch (error) { setStatus('status', error.message); }
+  finally { busy = false; renderModes(); }
+});
+
+$('mode').addEventListener('change', () => { setStatus('status', ''); renderModes(); });
+$('copy').addEventListener('click', async () => {
+  const text = $('prompt-text').hidden ? $('answer').textContent : $('prompt-text').value;
+  try { await navigator.clipboard.writeText(text); setStatus('status', 'Скопировано.'); }
+  catch {
+    setStatus('status', 'Скопируйте выделенный текст вручную.');
+    if (!$('prompt-text').hidden) $('prompt-text').select();
+    else {
+      const range = document.createRange();
+      range.selectNodeContents($('answer'));
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+});
+$('dismiss-memory').addEventListener('click', () => { $('memory-proposal').hidden = true; });
+$('remember').addEventListener('click', async () => {
+  const text = $('memory-text').value.trim();
+  if (!text) return;
+  try {
+    await save(s => edit(s, {id: crypto.randomUUID(), kind: 'memory', title: text.slice(0, 80), text}));
+    $('memory-proposal').hidden = true;
+    setStatus('status', 'Добавлено в память.');
+  } catch (error) { setStatus('status', error.message); }
+});
+document.querySelectorAll('[data-open]').forEach(node => node.addEventListener('click', () => {
+  if (state) $(node.dataset.open).showModal();
+}));
+document.querySelectorAll('[data-close]').forEach(node => node.addEventListener('click', () => node.closest('dialog').close()));
+$('new-entry').addEventListener('click', () => openEditor());
+$('cancel-entry').addEventListener('click', () => { $('entry-form').hidden = true; });
+$('entry-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const entry = {id: editingId ?? crypto.randomUUID(), kind: $('entry-kind').value,
+    title: $('entry-title').value.trim(), text: $('entry-text').value.trim()};
+  try {
+    let conflict;
+    await save(s => { conflict = edit(s, entry, entry.id, editingRevision); });
+    $('entry-form').hidden = true;
+    setStatus('library-status', conflict ? 'Запись изменилась на другом устройстве. Ваш текст сохранён отдельной копией.' : 'Сохранено.');
+  } catch (error) { setStatus('library-status', error.message); }
+});
+$('files').addEventListener('change', async event => {
+  const files = Array.from(event.target.files);
+  event.target.value = '';
+  const kind = $('import-kind').value;
+  const imported = [];
+  const skipped = [];
+  for (const file of files) {
+    try {
+      if (file.size > textLimit) throw new Error();
+      const text = new TextDecoder('utf-8', {fatal: true}).decode(await file.arrayBuffer()).trim();
+      const entry = {id: crypto.randomUUID(), kind, title: file.name.slice(0, 180), text};
+      if (!validEntry(entry)) throw new Error();
+      imported.push(entry);
+    } catch { skipped.push(file.name); }
+  }
+  try {
+    if (imported.length) await save(s => imported.forEach(entry => edit(s, entry)));
+    setStatus('library-status', 'Загружено: ' + imported.length + (skipped.length ? '. Пропущены (пустые, больше 200 КБ или не UTF-8): ' + skipped.join(', ') : '.'));
+  } catch (error) { setStatus('library-status', error.message); }
+});
+$('save-keys').addEventListener('click', () => {
+  for (const name of ['claude', 'deepseek']) {
+    const value = $(name + '-key').value.trim();
+    if (value) localStorage.setItem(keyName + name, value);
+    else localStorage.removeItem(keyName + name);
+  }
+  setStatus('settings-status', 'Ключи сохранены на этом устройстве.');
+  setStatus('status', '');
+  renderModes();
+});
+
+async function setProfile(code) {
+  const attempt = ++connectionAttempt;
+  connection?.close();
+  connection = undefined;
+  $('connect').disabled = true;
+  try {
+    const next = code ? (await cloudIdentity(code)).profile : local;
+    if (attempt !== connectionAttempt) return;
+    profile = next;
+    currentThread = undefined;
+    $('task').placeholder = 'Что нужно сделать?';
+    $('result').hidden = true;
+    $('entry-form').hidden = true;
+    await refresh();
+    $('sync-code').value = code;
+    $('disconnect').hidden = !code;
+    renderModes();
+    if (!code) {
+      localStorage.removeItem(cloudCodeName);
+      setStatus('sync-status', 'Локальная библиотека');
+      return;
+    }
+    localStorage.setItem(cloudCodeName, code);
+    setStatus('sync-status', 'Подключаю библиотеку…');
+    const sync = await connectSync(code, profile,
+      text => { if (attempt === connectionAttempt) setStatus('sync-status', text); },
+      refresh, () => attempt === connectionAttempt);
+    if (attempt !== connectionAttempt) sync?.close?.();
+    else connection = sync;
+  } catch {
+    if (attempt === connectionAttempt) {
+      setStatus('sync-status', 'Синхронизация недоступна · работаем с локальной копией');
+    }
+  } finally {
+    if (attempt === connectionAttempt) $('connect').disabled = false;
+  }
+}
+
+$('generate-code').addEventListener('click', () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  $('sync-code').value = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  $('sync-code').select();
+});
+$('connect').addEventListener('click', () => {
+  const code = $('sync-code').value.trim();
+  if (!/^[A-Za-z0-9_-]{22}$/.test(code)) {
+    setStatus('sync-status', 'Создайте код или вставьте код с первого устройства.');
+    return;
+  }
+  setProfile(code);
+});
+$('disconnect').addEventListener('click', () => setProfile(''));
+
+$('backup').addEventListener('click', async () => {
+  try {
+    const latest = await read(profile);
+    const file = new Blob([JSON.stringify({version: 1, library: entries(latest), history: latest.history}, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'ai-pult-backup.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  } catch { setStatus('settings-status', 'Не удалось сохранить резервную копию.'); }
+});
+$('restore').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  const target = profile;
+  event.target.value = '';
+  if (!file) return;
+  try {
+    const backup = JSON.parse(await file.text());
+    const validMessage = message => ['user', 'assistant'].includes(message?.role) && typeof message.content === 'string';
+    const validThread = thread => typeof thread?.id === 'string' && typeof thread.title === 'string'
+      && Object.hasOwn(modes, thread.mode) && Array.isArray(thread.messages) && thread.messages.every(validMessage)
+      && thread.messages.at(-1)?.role === 'assistant' && Array.isArray(thread.sources)
+      && thread.sources.every(validEntry) && (thread.note === undefined || typeof thread.note === 'string');
+    if (backup?.version !== 1 || !Array.isArray(backup.library) || !backup.library.every(validEntry)
+      || !Array.isArray(backup.history) || !backup.history.every(validThread)) throw new Error();
+    await save(s => {
+      for (const entry of backup.library) {
+        const existing = s.library[entry.id]?.entry;
+        if (!existing) edit(s, entry);
+        else if (existing.kind !== entry.kind || existing.title !== entry.title || existing.text !== entry.text) {
+          edit(s, {...entry, id: crypto.randomUUID(), title: entry.title.slice(0, 160) + ' (из копии)'});
+        }
+      }
+      const saved = new Set(s.history.map(thread => thread.id));
+      s.history = [...s.history, ...backup.history.filter(thread => !saved.has(thread.id))].slice(0, 30);
+    }, target);
+    setStatus('settings-status', 'Данные из копии добавлены.');
+  } catch { setStatus('settings-status', 'Не удалось восстановить копию. Проверьте файл.'); }
+});
+
+$('new-task').addEventListener('click', () => {
+  if (busy) return;
+  currentThread = undefined;
+  $('task').value = '';
+  $('task').placeholder = 'Что нужно сделать?';
+  $('result').hidden = true;
+  setStatus('status', '');
+  $('task').focus();
+});
+
+try {
+  await openStorage();
+  if (!localStorage.getItem('ai-pult:migrated-keys')) {
+    try {
+      const previousKey = JSON.parse(localStorage.getItem('ai-pult.keys.v1'))?.deepseek;
+      if (!localStorage.getItem(keyName + 'deepseek') && typeof previousKey === 'string' && previousKey.trim()) {
+        localStorage.setItem(keyName + 'deepseek', previousKey.trim());
+      }
+    } catch { /* Previous settings may be absent or invalid. */ }
+    localStorage.setItem('ai-pult:migrated-keys', '1');
+  }
+  for (const [name, value] of Object.entries(keys())) $(name + '-key').value = value;
+  await refresh();
+  renderModes();
+  const code = localStorage.getItem(cloudCodeName);
+  if (code) setProfile(code);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+} catch {
+  setStatus('status', 'Не удалось открыть локальное хранилище. Проверьте настройки браузера.');
+}
