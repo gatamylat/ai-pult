@@ -1,19 +1,39 @@
 import {validEntry} from './core.js';
 
 const empty = () => ({library: {}, queue: {}, history: []});
-let db;
-export async function openStorage() {
-  db = await new Promise((resolve, reject) => {
+let opening;
+export function openStorage() {
+  if (opening) return opening;
+  const pending = new Promise((resolve, reject) => {
     const request = indexedDB.open('ai-pult-library', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('profiles');
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      const forget = () => { if (opening === pending) opening = undefined; };
+      db.onclose = forget;
+      db.onversionchange = () => { forget(); db.close(); };
+      resolve(db);
+    };
     request.onerror = () => reject(request.error);
   });
+  opening = pending;
+  pending.catch(() => { if (opening === pending) opening = undefined; });
+  return pending;
 }
 
-function transaction(profile, update) {
+async function transaction(profile, update) {
+  const pending = openStorage();
+  const db = await pending;
+  const mode = update ? 'readwrite' : 'readonly';
+  let tx;
+  try {
+    tx = db.transaction('profiles', mode);
+  } catch (error) {
+    if (error.name !== 'InvalidStateError') throw error;
+    if (opening === pending) opening = undefined;
+    tx = (await openStorage()).transaction('profiles', mode);
+  }
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('profiles', update ? 'readwrite' : 'readonly');
     const store = tx.objectStore('profiles');
     const request = store.get(profile);
     let state;

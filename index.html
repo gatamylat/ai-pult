@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="./surf-touch.png">
 <link rel="icon" href="./surf-icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Playfair+Display:wght@500;600&amp;display=swap">
-<link rel="stylesheet" href="./surf.css?v=3">
+<link rel="stylesheet" href="./surf.css?v=4">
 <title>AI Пульт</title>
 </head>
 <body>
@@ -79,7 +79,7 @@
     </details>
     <label class="sr-only" for="prompt-text">Готовый промпт</label>
     <textarea id="prompt-text" rows="12" hidden></textarea>
-    <div id="answer" hidden></div>
+    <div id="answer" class="markdown" hidden></div>
     <div id="memory-proposal" hidden>
       <label for="memory-text">Предложение для памяти</label>
       <textarea id="memory-text" rows="3"></textarea>
@@ -115,9 +115,20 @@
   <ul id="library-list"></ul>
 </dialog>
 
-<dialog id="history">
-  <div class="panel-head"><h2>История</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+<dialog id="history" aria-labelledby="history-heading">
+  <div class="panel-head"><h2 id="history-heading">История</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
   <ul id="history-list"></ul>
+  <section id="history-entry" hidden>
+    <div class="row">
+      <button id="history-back" type="button">Назад</button>
+      <button id="history-continue" type="button">Продолжить в чате</button>
+    </div>
+    <p id="history-status" role="status" hidden>Дождитесь завершения текущего запроса, чтобы продолжить эту переписку.</p>
+    <h3 id="history-title"></h3>
+    <p id="history-mode"></p>
+    <p id="history-note"></p>
+    <div id="history-answer" class="markdown"></div>
+  </section>
 </dialog>
 
 <dialog id="settings">
@@ -154,6 +165,6 @@
   </section>
   <p id="settings-status" role="status"></p>
 </dialog>
-<script type="module" src="./pult-v04.js?v=3"></script>
+<script type="module" src="./pult-v04.js?v=4"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import {change, read, mergeRemote} from './library.js';
+import {change, read, mergeRemote} from './library.js?v=4';
 import {validEntry} from './core.js';
 
 const config = {

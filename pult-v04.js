@@ -1,6 +1,7 @@
 import {askModel, buildPrompt, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js';
-import {change, edit, entries, openStorage, read} from './modules/library.js';
-import {cloudIdentity, connectSync} from './modules/sync.js';
+import {change, edit, entries, openStorage, read} from './modules/library.js?v=4';
+import {cloudIdentity, connectSync} from './modules/sync.js?v=4';
+import {renderMarkdown} from './modules/markdown.js';
 
 const $ = id => document.getElementById(id);
 const local = 'local';
@@ -17,6 +18,8 @@ let selectedSources = [];
 let excludedSources = new Set();
 let resultTask = '';
 let currentThread;
+let historyId;
+let answerText = '';
 let editingId;
 let editingRevision;
 
@@ -37,8 +40,10 @@ function renderModes() {
     select.value = available.claude ? 'claude' : available.deepseek ? 'deepseek' : '';
   }
   $('provider-field').hidden = !execute;
-  $('run').textContent = execute ? 'Выполнить задачу' : 'Собрать промпт';
+  $('run').textContent = !execute ? 'Собрать промпт' : currentThread ? 'Уточнить' : 'Выполнить задачу';
   $('run').disabled = busy || !state || (execute && !select.value);
+  $('history-status').hidden = !busy;
+  $('history-continue').disabled = busy;
   if (execute && !select.value) setStatus('status', 'Добавьте ключ Claude или DeepSeek в настройках.');
 }
 
@@ -85,32 +90,64 @@ function renderHistory() {
   const list = $('history-list');
   list.replaceChildren();
   if (!state.history.length) list.textContent = 'Здесь появятся выполненные задачи.';
-  for (const thread of state.history) {
+  for (const {id, title} of state.history) {
     const item = document.createElement('li');
-    item.append(button(thread.title, () => {
-      if (busy) return;
-      $('history').close();
-      currentThread = thread;
-      $('task').value = '';
-      $('task').placeholder = 'Что уточнить в этой задаче?';
-      $('mode').value = 'execute';
-      $('provider').value = thread.mode;
-      selectedSources = thread.sources ?? [];
-      excludedSources = new Set();
-      showResult('answer', thread.messages.at(-1).content, thread.note);
-      renderModes();
-    }));
+    const open = button(title, () => {
+      const thread = state.history.find(entry => entry.id === id);
+      if (!thread) return;
+      historyId = id;
+      $('history-title').textContent = title;
+      $('history-mode').textContent = modes[thread.mode] ?? '';
+      $('history-note').textContent = thread.note ?? '';
+      renderMarkdown($('history-answer'), thread.messages.at(-1).content);
+      $('history-list').hidden = true;
+      $('history-entry').hidden = false;
+      $('history').scrollTop = 0;
+      $('history-back').focus({preventScroll: true});
+    });
+    open.dataset.threadId = id;
+    item.append(open);
     list.append(item);
   }
 }
+
+function showHistoryList() {
+  $('history-list').hidden = false;
+  $('history-entry').hidden = true;
+  $('history').scrollTop = 0;
+  const previous = Array.from($('history-list').querySelectorAll('button')).find(node => node.dataset.threadId === historyId);
+  historyId = undefined;
+  previous?.focus();
+}
+
+$('history-back').addEventListener('click', showHistoryList);
+$('history-continue').addEventListener('click', () => {
+  if (busy) return;
+  const thread = state.history.find(entry => entry.id === historyId);
+  if (!thread) return showHistoryList();
+  $('history').addEventListener('close', () => $('task').focus(), {once: true});
+  $('history').close();
+  currentThread = thread;
+  $('task').value = '';
+  $('task').placeholder = 'Что уточнить в этой задаче?';
+  $('mode').value = 'execute';
+  $('provider').value = thread.mode;
+  selectedSources = thread.sources ?? [];
+  excludedSources = new Set();
+  showResult('answer', thread.messages.at(-1).content, thread.note);
+  renderModes();
+});
 
 async function refresh() {
   const current = profile;
   const loaded = await read(current);
   if (profile !== current) return;
+  const previous = state?.history;
   state = loaded;
   renderLibrary();
-  renderHistory();
+  // Keep the history buttons in place while library sync refreshes the view.
+  if (!previous || previous.length !== loaded.history.length || loaded.history.some((thread, index) =>
+    thread.id !== previous[index].id || thread.title !== previous[index].title)) renderHistory();
 }
 
 async function save(update, target = profile) {
@@ -176,7 +213,8 @@ function showResult(type, text, note, proposal = '') {
   $('result-title').textContent = type === 'prompt' ? 'Готовый промпт' : 'Ответ';
   $('prompt-text').hidden = type !== 'prompt';
   $('answer').hidden = type !== 'answer';
-  $('answer').textContent = type === 'answer' ? text : '';
+  answerText = type === 'answer' ? text : '';
+  renderMarkdown($('answer'), answerText);
   $('prompt-text').value = type === 'prompt' ? text : '';
   $('memory-proposal').hidden = !proposal;
   $('memory-text').value = proposal;
@@ -225,7 +263,17 @@ $('task-form').addEventListener('submit', async event => {
     showResult('answer', answer, response.note, proposal);
     $('task').value = '';
     $('task').placeholder = 'Что уточнить в этой задаче?';
-    await save(s => { s.history = [thread, ...s.history.filter(t => t.id !== thread.id)].slice(0, 30); }, executionProfile);
+    try {
+      await change(executionProfile, s => {
+        s.history = [thread, ...s.history.filter(t => t.id !== thread.id)].slice(0, 30);
+      });
+    } catch {
+      if (executionProfile === profile) setStatus('status', [response.note, 'Не удалось сохранить ответ в истории. Ответ можно скопировать с экрана.'].filter(Boolean).join(' '));
+      return;
+    }
+    if (executionProfile === profile) {
+      await refresh().catch(() => setStatus('status', [response.note, 'Ответ сохранён. Чтобы увидеть его в истории, обновите страницу.'].filter(Boolean).join(' ')));
+    }
   } catch (error) { setStatus('status', error.message); }
   finally { busy = false; renderModes(); }
 });
@@ -236,7 +284,7 @@ document.querySelectorAll('[name="task-mode"]').forEach(input => input.addEventL
   renderModes();
 }));
 $('copy').addEventListener('click', async () => {
-  const text = $('prompt-text').hidden ? $('answer').textContent : $('prompt-text').value;
+  const text = $('prompt-text').hidden ? answerText : $('prompt-text').value;
   try { await navigator.clipboard.writeText(text); setStatus('status', 'Скопировано.'); }
   catch {
     setStatus('status', 'Скопируйте выделенный текст вручную.');
@@ -277,8 +325,9 @@ document.querySelectorAll('[data-open]').forEach(node => node.addEventListener('
   const dialog = $(node.dataset.open);
   const menuVisible = menuToggle.getClientRects().length > 0;
   setMenu(false);
+  if (dialog.id === 'history') showHistoryList();
   dialog.showModal();
-  if (menuVisible) dialog.addEventListener('close', () => menuToggle.focus(), {once: true});
+  if (menuVisible) dialog.addEventListener('close', () => menuToggle.focus({preventScroll: true}), {once: true});
 }));
 document.querySelectorAll('[data-close]').forEach(node => node.addEventListener('click', () => node.closest('dialog').close()));
 for (const dialog of document.querySelectorAll('dialog')) {
@@ -461,6 +510,7 @@ $('new-task').addEventListener('click', () => {
   $('task').placeholder = 'Что нужно сделать?';
   $('result').hidden = true;
   setStatus('status', '');
+  renderModes();
   $('task').focus();
 });
 
