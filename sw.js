@@ -1,4 +1,4 @@
-const cacheName = 'ai-pult-v02';
+const cacheName = 'ai-pult-v03';
 const files = ['./', './index.html', './style.css', './pult.js', './modules/core.js', './modules/library.js',
   './modules/sync.js', './manifest.webmanifest', './icon.svg', './touch.png'];
 const urls = new Set(files.map(path => new URL(path, self.registration.scope).href));

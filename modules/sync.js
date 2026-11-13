@@ -11,6 +11,7 @@ const config = {
 };
 const sdk = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-';
 const encoder = new TextEncoder();
+const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 let firebaseReady;
 
 async function firebase() {
@@ -52,11 +53,11 @@ export async function cloudIdentity(code) {
 
 export async function connectSync(code, localProfile, status, refresh, active = () => true) {
   const {profile, key} = await cloudIdentity(code);
-  const db = await firebase();
   if (!active()) return;
-  const collection = db.collection('apps').doc('ai-pult').collection('users');
-  const query = collection.where('profile', '==', profile);
-  const ref = id => collection.doc(profile + '_' + id);
+  let db;
+  let collection;
+  let query;
+  let unsubscribe;
   const additionalData = (id, rev) => encoder.encode(profile + '/' + id + '/' + rev);
 
   async function pack(id, record) {
@@ -66,8 +67,11 @@ export async function connectSync(code, localProfile, status, refresh, active = 
     return {profile, id, rev: record.rev, iv: encode(iv), data: encode(new Uint8Array(data))};
   }
 
-  async function unpack(data) {
+  async function unpack(data, documentId) {
     const {id, rev, iv} = data;
+    if (data.profile !== profile || !uuid.test(id) || !uuid.test(rev) || documentId !== profile + '_' + id) {
+      throw new Error('Неверный идентификатор записи.');
+    }
     const decoded = await crypto.subtle.decrypt({name: 'AES-GCM', iv: decode(iv), additionalData: additionalData(id, rev)}, key, decode(data.data));
     const entry = JSON.parse(new TextDecoder().decode(decoded));
     if (entry !== null && (!validEntry(entry) || entry.id !== id)) throw new Error('Неверный формат записи.');
@@ -81,60 +85,84 @@ export async function connectSync(code, localProfile, status, refresh, active = 
       ? {...pending, entry: {...pending.entry, id: conflictId, title: (pending.entry.title.slice(0, 160) + ' (копия)'), conflict: true}}
       : null;
     const copy = conflict ? await pack(conflictId, conflict) : null;
-    const result = await db.runTransaction(async tx => {
+    const ref = id => collection.doc(profile + '_' + id);
+    const remote = await db.runTransaction(async tx => {
       const current = await tx.get(ref(id));
-      const remote = current.exists ? current.data() : null;
-      if (!active()) throw new Error('Синхронизация остановлена.');
-      if (remote?.rev === pending.rev) return 'saved';
-      if ((remote?.rev ?? null) === pending.base) {
+      const previous = current.exists ? await unpack(current.data(), current.id) : null;
+      if (!connected()) throw new Error('Синхронизация остановлена.');
+      if (previous?.rev === pending.rev) return null;
+      if ((previous?.rev ?? null) === pending.base) {
         tx.set(ref(id), normal);
-        return 'saved';
+        return null;
       }
       if (copy) {
-        const existingCopy = await tx.get(ref(conflictId));
-        if (!existingCopy.exists) tx.set(ref(conflictId), copy);
+        const existing = await tx.get(ref(conflictId));
+        if (!connected()) throw new Error('Синхронизация остановлена.');
+        if (existing.exists) await unpack(existing.data(), existing.id);
+        else tx.set(ref(conflictId), copy);
       }
-      return 'conflict';
+      return {[id]: previous ?? {rev: null, entry: null}, ...(conflict ? {[conflictId]: conflict} : {})};
     });
 
     await change(localProfile, state => {
       const queued = state.queue[id];
       if (queued?.rev === pending.rev) delete state.queue[id];
-      else if (queued && result === 'saved' && queued.base === pending.base) queued.base = pending.rev;
+      else if (queued && !remote && queued.base === pending.base) queued.base = pending.rev;
+      if (remote) mergeRemote(state, remote);
     });
-    return result;
+    return Boolean(remote);
   }
+
 
   let stopped = false;
   let running = false;
   let queued = false;
   let timer;
   let retry;
-  let conflicts = false;
+  const connected = () => !stopped && active();
   async function synchronize() {
-    if (stopped || !active()) return;
+    if (!connected()) return;
     if (running) { queued = true; return; }
     if (!navigator.onLine) { status('Локальная копия · нет сети'); return; }
     running = true;
     status('Синхронизация…');
     try {
+      if (!query) {
+        db = await firebase();
+        if (!connected()) return;
+        collection = db.collection('apps').doc('ai-pult').collection('users');
+        query = collection.where('profile', '==', profile);
+      }
+      unsubscribe ??= query.onSnapshot({includeMetadataChanges: true}, snapshot => {
+        if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) schedule();
+      }, () => {
+        unsubscribe = undefined;
+        clearTimeout(retry);
+        retry = setTimeout(synchronize, 15_000);
+      });
+      let conflicts = false;
       const snapshot = await read(localProfile);
       for (const [id, pending] of Object.entries(snapshot.queue)) {
-        if (stopped || !active()) return;
-        if (await send(id, pending) === 'conflict') conflicts = true;
+        if (!connected()) return;
+        if (await send(id, pending)) conflicts = true;
       }
       const cloud = await query.get({source: 'server'});
-      const remote = Object.fromEntries(await Promise.all(cloud.docs.map(async doc => {
+      const decoded = await Promise.allSettled(cloud.docs.map(async doc => {
         const data = doc.data();
-        if (doc.id !== profile + '_' + data.id) throw new Error('Неверный идентификатор записи.');
-        return [data.id, await unpack(data)];
-      })));
-      if (stopped || !active()) return;
-      await change(localProfile, state => mergeRemote(state, remote));
+        return [data.id, await unpack(data, doc.id)];
+      }));
+      if (!connected()) return;
+      const valid = decoded.flatMap(item => item.status === 'fulfilled' ? [item.value] : []);
+      const invalid = decoded.length - valid.length;
+      await change(localProfile, state => mergeRemote(state, Object.fromEntries(valid)));
       await refresh();
-      status(conflicts ? 'Синхронизировано · проверьте конфликтующие записи' : 'Библиотека синхронизирована');
+      if (!connected()) return;
+      if (unsubscribe) clearTimeout(retry);
+      status(invalid ? 'Синхронизировано частично · есть недоступные записи'
+        : conflicts ? 'Синхронизировано · проверьте конфликтующие записи' : 'Библиотека синхронизирована');
     } catch {
-      if (!stopped && active()) {
+      if (connected()) {
+        await refresh().catch(() => {});
         status('Синхронизация недоступна · работаем с локальной копией');
         clearTimeout(retry);
         retry = setTimeout(synchronize, 15_000);
@@ -150,9 +178,6 @@ export async function connectSync(code, localProfile, status, refresh, active = 
     timer = setTimeout(synchronize, 250);
   }
 
-  const unsubscribe = query.onSnapshot({includeMetadataChanges: true}, snapshot => {
-    if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) schedule();
-  }, () => status('Синхронизация недоступна · локальная копия'));
   addEventListener('online', schedule);
   addEventListener('offline', schedule);
   schedule();
@@ -160,7 +185,7 @@ export async function connectSync(code, localProfile, status, refresh, active = 
     stopped = true;
     clearTimeout(timer);
     clearTimeout(retry);
-    unsubscribe();
+    unsubscribe?.();
     removeEventListener('online', schedule);
     removeEventListener('offline', schedule);
   }};
