@@ -12,15 +12,29 @@ export function validEntry(entry) {
 }
 
 export function selectSources(task, library) {
-  const stop = new Set(['как', 'что', 'для', 'этот', 'этого', 'это', 'предложи', 'изучи', 'сделай', 'нужно', 'можно', 'чтобы']);
-  const tokens = text => new Set(terms(text).filter(word => !stop.has(word)).map(word => word.slice(0, 5)));
+  const stop = new Set(['как', 'что', 'для', 'этот', 'этого', 'это', 'предложи', 'изучи', 'сделай', 'нужно',
+    'можно', 'чтобы', 'если', 'только', 'пока', 'сейчас', 'скажи', 'или', 'уже', 'какой']);
+  const tokens = text => new Set(terms(text.replaceAll('ё', 'е')).filter(word => !stop.has(word)).map(word => word.slice(0, 5)));
   const words = tokens(task);
   const score = text => [...tokens(text)].filter(word => words.has(word)).length;
-  return library.flatMap(entry => {
-    if (entry.kind === 'skill' && entry.text.length <= 4000) {
-      const rank = score(entry.title) * 3 + score(entry.text);
-      return rank ? [{...entry, rank}] : [];
-    }
+  const names = ' ' + terms(task).join(' ') + ' ';
+  const skills = library.filter(entry => entry.kind === 'skill').map(entry => {
+    const header = entry.text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? entry.text;
+    const name = header.match(/^name:\s*([\w-]+)\s*$/m)?.[1];
+    const description = header.match(/^description:[ \t]*(.*(?:\r?\n[ \t]+[^\r\n]*)*)/m)?.[1];
+    const title = /^skill\.md$/i.test(entry.title) && name ? name : entry.title;
+    const explicit = [name, title].some(label => label && !/^skill\.md$/i.test(label) &&
+      names.includes(' ' + terms(label).join(' ') + ' '));
+    const scope = description?.split(/(?:Не применять|Не использовать|Do not use)/i)[0] ?? entry.text.slice(0, 500);
+    const rank = score(title) * 3 + score(scope);
+    const text = entry.text.length > 8000 ? entry.text.slice(0, 8000).trimEnd() + '\n\n[…]' : entry.text;
+    return {...entry, title, text, explicit, rank};
+  }).sort((a, b) => b.rank - a.rank);
+  const named = skills.filter(skill => skill.explicit);
+  const automatic = skills.find(skill => skill.rank >= 2);
+  const chosenSkills = named.length ? named : automatic ? [automatic] : [];
+
+  const materials = library.filter(entry => entry.kind !== 'skill').flatMap(entry => {
     const paragraphs = entry.text.split(/\n\s*\n/);
     const chunks = paragraphs.flatMap(paragraph => paragraph.match(/[\s\S]{1,1800}/g) || []);
     const matches = chunks.map((text, index) => ({text, index, rank: score(text)}))
@@ -31,7 +45,8 @@ export function selectSources(task, library) {
       ? matches.sort((a, b) => a.index - b.index).map(item => item.text).join('\n\n[…]\n\n')
       : chunks[0];
     return [{...entry, text, rank}];
-  }).sort((a, b) => b.rank - a.rank).slice(0, 6);
+  }).sort((a, b) => b.rank - a.rank);
+  return [...chosenSkills, ...materials].slice(0, 6);
 }
 
 export function buildPrompt(task, sources) {

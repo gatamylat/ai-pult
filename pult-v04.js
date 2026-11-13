@@ -1,4 +1,4 @@
-import {askModel, buildPrompt, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js';
+import {askModel, buildPrompt, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js?v=5';
 import {change, edit, entries, openStorage, read} from './modules/library.js?v=4';
 import {cloudIdentity, connectSync} from './modules/sync.js?v=4';
 import {renderMarkdown} from './modules/markdown.js';
@@ -215,7 +215,20 @@ function showResult(type, text, note, proposal = '') {
   $('answer').hidden = type !== 'answer';
   answerText = type === 'answer' ? text : '';
   renderMarkdown($('answer'), answerText);
-  $('prompt-text').value = type === 'prompt' ? text : '';
+  const promptField = $('prompt-text');
+  promptField.value = type === 'prompt' ? text : '';
+  if (type === 'prompt') {
+    promptField.setSelectionRange(0, 0);
+    promptField.scrollTop = 0;
+    $('source-details').open = false;
+    if (matchMedia('(max-width: 599px)').matches) {
+      if (document.activeElement === $('task')) $('task').blur();
+      requestAnimationFrame(() => {
+        promptField.scrollTop = 0;
+        if (!promptField.hidden && !$('result').hidden) $('result').scrollIntoView({block: 'start'});
+      });
+    }
+  }
   $('memory-proposal').hidden = !proposal;
   $('memory-text').value = proposal;
   setStatus('status', note || '');

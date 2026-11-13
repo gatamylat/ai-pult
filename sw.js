@@ -1,5 +1,5 @@
-const cacheName = 'ai-pult-surf-5';
-const files = ['./', './index.html', './surf.css?v=4', './pult-v04.js?v=4', './modules/core.js',
+const cacheName = 'ai-pult-surf-6';
+const files = ['./', './index.html', './surf.css?v=4', './pult-v04.js?v=5', './modules/core.js', './modules/core.js?v=5',
   './modules/library.js?v=4', './modules/sync.js?v=4', './modules/markdown.js', './manifest.webmanifest',
   './surf-icon.svg', './surf-touch.png'];
 const urls = new Set(files.map(path => new URL(path, self.registration.scope).href));
