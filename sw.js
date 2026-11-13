@@ -1,5 +1,5 @@
-const cacheName = 'ai-pult-surf-2';
-const files = ['./', './index.html', './surf.css?v=2', './pult-v04.js', './modules/core.js', './modules/library.js',
+const cacheName = 'ai-pult-surf-3';
+const files = ['./', './index.html', './surf.css?v=3', './pult-v04.js?v=3', './modules/core.js', './modules/library.js',
   './modules/sync.js', './manifest.webmanifest', './surf-icon.svg', './surf-touch.png'];
 const urls = new Set(files.map(path => new URL(path, self.registration.scope).href));
 self.addEventListener('install', event => {

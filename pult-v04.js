@@ -281,6 +281,41 @@ document.querySelectorAll('[data-open]').forEach(node => node.addEventListener('
   if (menuVisible) dialog.addEventListener('close', () => menuToggle.focus(), {once: true});
 }));
 document.querySelectorAll('[data-close]').forEach(node => node.addEventListener('click', () => node.closest('dialog').close()));
+for (const dialog of document.querySelectorAll('dialog')) {
+  let pressedOutside = false;
+  const isOutside = event => {
+    if (event.target !== dialog) return false;
+    const {left, right, top, bottom} = dialog.getBoundingClientRect();
+    return event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom;
+  };
+  dialog.addEventListener('pointerdown', event => { pressedOutside = isOutside(event); });
+  dialog.addEventListener('click', event => {
+    if (pressedOutside && isOutside(event)) dialog.close();
+    pressedOutside = false;
+  });
+}
+
+const theme = $('theme');
+const themeKey = 'ai-pult:theme';
+const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+const themeColor = document.querySelector('meta[name="theme-color"]');
+try {
+  const savedTheme = localStorage.getItem(themeKey);
+  if (savedTheme === 'light' || savedTheme === 'dark') theme.value = savedTheme;
+} catch { /* Use the system theme if storage is unavailable. */ }
+function applyTheme() {
+  const dark = theme.value === 'dark' || (theme.value === 'system' && systemTheme.matches);
+  const root = document.documentElement;
+  root.dataset.theme = dark ? 'dark' : 'light';
+  themeColor.content = getComputedStyle(root).getPropertyValue('--bg').trim();
+}
+theme.addEventListener('change', () => {
+  applyTheme();
+  try { localStorage.setItem(themeKey, theme.value); } catch { /* Keep the selection for this session. */ }
+});
+systemTheme.addEventListener('change', applyTheme);
+applyTheme();
+
 $('new-entry').addEventListener('click', () => openEditor());
 $('cancel-entry').addEventListener('click', () => { $('entry-form').hidden = true; });
 $('entry-form').addEventListener('submit', async event => {
