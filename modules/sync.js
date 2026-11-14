@@ -1,5 +1,5 @@
-import {change, read, mergeRemote} from './library.js?v=4';
-import {validEntry} from './core.js';
+import {change, read, mergeRemote} from './library.js?v=7';
+import {validEntry} from './core.js?v=7';
 
 const config = {
     apiKey: "AIzaSyAgIA0PLvUOJsRN8tHRzC03evTTkt3KHHc",

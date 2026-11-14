@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="./surf-touch.png">
 <link rel="icon" href="./surf-icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Playfair+Display:wght@500;600&amp;display=swap">
-<link rel="stylesheet" href="./surf.css?v=5">
+<link rel="stylesheet" href="./surf.css?v=6">
 <title>AI Пульт</title>
 </head>
 <body>
@@ -99,6 +99,7 @@
       <label><input type="radio" name="library-kind" value="memory" checked><span>Память</span></label>
       <label><input type="radio" name="library-kind" value="skill"><span>Скиллы</span></label>
       <label><input type="radio" name="library-kind" value="document"><span>Документы</span></label>
+      <label><input type="radio" name="library-kind" value="expectation"><span>Ожидания</span></label>
     </fieldset>
     <div class="row library-actions">
       <button id="new-entry" type="button">Добавить запись</button>
@@ -111,9 +112,13 @@
   <p id="library-status" role="status"></p>
   <form id="entry-form" hidden>
     <h3 id="entry-heading" tabindex="-1"></h3>
-    <label>Тип<select id="entry-kind"><option value="skill">Skill</option><option value="memory">Память</option><option value="document">Документ</option></select></label>
+    <label>Тип<select id="entry-kind"><option value="skill">Skill</option><option value="memory">Память</option><option value="document">Документ</option><option value="expectation">Ожидание</option></select></label>
     <label>Название<input id="entry-title" required maxlength="180"></label>
-    <label>Текст<textarea id="entry-text" required rows="7"></textarea></label>
+    <label><span id="entry-text-label">Текст</span><textarea id="entry-text" required rows="7"></textarea></label>
+    <div id="expectation-fields" hidden>
+      <label>Когда применять<input id="entry-scope" maxlength="1000" placeholder="Например, окна и модальные диалоги"></label>
+      <label>Как проверить<textarea id="entry-check" rows="3" maxlength="2000" placeholder="Например, нажать внутри окна, затем снаружи"></textarea></label>
+    </div>
     <div class="row"><button class="primary" type="submit">Сохранить</button><button id="cancel-entry" type="button">Назад</button><button id="delete-entry" class="delete-entry" type="button" hidden>Удалить</button></div>
   </form>
 </dialog>
@@ -168,6 +173,6 @@
   </section>
   <p id="settings-status" role="status"></p>
 </dialog>
-<script type="module" src="./pult-v04.js?v=6"></script>
+<script type="module" src="./pult-v04.js?v=7"></script>
 </body>
 </html>

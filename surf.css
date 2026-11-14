@@ -293,9 +293,12 @@ dialog label:not(.upload) { display: block; color: var(--muted); font-size: 13px
 dialog label > input, dialog label > textarea, dialog label > select { display: block; margin-top: 4px; }
 .setting-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .library-actions { margin-top: 8px; }
-.library-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; margin-top: 10px; }
+.library-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; margin-top: 10px; }
 .library-tabs label:not(.upload) { margin: 0; }
 .library-tabs span { min-height: 44px; padding-inline: 4px; }
+@media (max-width: 360px) {
+  .library-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 #library-list li { padding-block: 0; }
 #library-list button {
   width: 100%;

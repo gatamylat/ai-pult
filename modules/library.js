@@ -1,4 +1,4 @@
-import {validEntry} from './core.js';
+import {validEntry} from './core.js?v=7';
 
 const empty = () => ({library: {}, queue: {}, history: []});
 let opening;

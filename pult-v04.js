@@ -1,6 +1,7 @@
-import {askModel, buildPrompt, entryTitle, kindNames, runTask, selectSources, textLimit, validEntry} from './modules/core.js?v=6';
-import {change, edit, entries, openStorage, read} from './modules/library.js?v=4';
-import {cloudIdentity, connectSync} from './modules/sync.js?v=4';
+import {askModel, buildPrompt, entryTitle, expectationBlock, kindNames, runTask, selectExpectations,
+  selectSources, sourceBlock, textLimit, validEntry} from './modules/core.js?v=7';
+import {change, edit, entries, openStorage, read} from './modules/library.js?v=7';
+import {cloudIdentity, connectSync} from './modules/sync.js?v=7';
 import {renderMarkdown} from './modules/markdown.js';
 
 const $ = id => document.getElementById(id);
@@ -52,7 +53,9 @@ const libraryKind = () => document.querySelector('[name="library-kind"]:checked'
 function renderLibrary() {
   const list = $('library-list');
   list.replaceChildren();
-  const items = entries(state).filter(entry => entry.kind === libraryKind())
+  const kind = libraryKind();
+  $('files').closest('.upload').hidden = kind === 'expectation';
+  const items = entries(state).filter(entry => entry.kind === kind)
     .map(entry => ({entry, title: entryTitle(entry)}))
     .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
   if (!items.length) list.textContent = 'В этом разделе пока нет записей.';
@@ -147,6 +150,15 @@ async function save(update, target = profile) {
   connection?.schedule();
 }
 
+function renderEntryFields() {
+  const expectation = $('entry-kind').value === 'expectation';
+  $('entry-text-label').textContent = expectation ? 'Что должно происходить' : 'Текст';
+  $('entry-text').rows = expectation ? 3 : 7;
+  $('expectation-fields').hidden = !expectation;
+  $('entry-scope').required = expectation;
+  $('entry-check').required = expectation;
+}
+
 function openEditor(entry) {
   editingId = entry?.id;
   editingRevision = entry ? state.library[entry.id]?.rev ?? null : null;
@@ -158,6 +170,9 @@ function openEditor(entry) {
   setStatus('library-status', '');
   $('entry-title').value = entry ? entryTitle(entry) : '';
   $('entry-text').value = entry?.text ?? '';
+  $('entry-scope').value = entry?.scope ?? '';
+  $('entry-check').value = entry?.check ?? '';
+  renderEntryFields();
   $('library').scrollTop = 0;
   $('entry-heading').focus({preventScroll: true});
 }
@@ -184,7 +199,9 @@ function renderSources(editable) {
         if (checkbox.checked) excludedSources.delete(source.id);
         else excludedSources.add(source.id);
         if ($('prompt-text').value !== promptBuilt) {
-          const block = '### ' + source.title + '\n' + source.text;
+          const lastExpectation = source.kind === 'expectation' &&
+            !selectedSources.some(item => item.kind === 'expectation' && !excludedSources.has(item.id));
+          const block = lastExpectation ? expectationBlock([source]) : sourceBlock(source);
           if (!checkbox.checked && $('prompt-text').value.includes(block)) {
             $('prompt-text').value = $('prompt-text').value.replace(block, '').replace(/\n{3,}/g, '\n\n').trim();
           } else if (confirm('Пересобрать промпт с этим выбором материалов? Ручные правки будут заменены.')) {
@@ -250,7 +267,10 @@ $('task-form').addEventListener('submit', async event => {
   const previous = currentThread;
   const executionProfile = profile;
   const continuing = $('mode').value === 'execute' && previous;
-  selectedSources = continuing ? previous.sources : selectSources(task, entries(state));
+  const library = entries(state);
+  const knownIds = new Set((previous?.sources ?? []).map(source => source.id));
+  const freshExpectations = continuing ? selectExpectations(task, library).filter(item => !knownIds.has(item.id)) : [];
+  selectedSources = continuing ? [...(previous.sources ?? []), ...freshExpectations] : selectSources(task, library);
   excludedSources = new Set();
   resultTask = task;
   const prompt = buildPrompt(task, selectedSources);
@@ -266,7 +286,8 @@ $('task-form').addEventListener('submit', async event => {
   renderModes();
   try {
     const credentials = keys();
-    const messages = [...(continuing ? previous.messages : []), {role: 'user', content: (continuing ? task : prompt) + memoryInstruction}];
+    const request = continuing ? [task, expectationBlock(freshExpectations)].filter(Boolean).join('\n\n') : prompt;
+    const messages = [...(continuing ? previous.messages : []), {role: 'user', content: request + memoryInstruction}];
     const response = await runTask(mode, messages,
       (id, chat) => askModel(id, credentials[id], chat), text => setStatus('status', text));
     if (executionProfile !== profile) return;
@@ -381,6 +402,7 @@ systemTheme.addEventListener('change', applyTheme);
 applyTheme();
 
 $('new-entry').addEventListener('click', () => openEditor());
+$('entry-kind').addEventListener('change', renderEntryFields);
 $('cancel-entry').addEventListener('click', () => {
   setStatus('library-status', '');
   closeEditor();
@@ -407,6 +429,11 @@ $('entry-form').addEventListener('submit', async event => {
   const entry = {id: editingId ?? crypto.randomUUID(), kind: $('entry-kind').value,
     title: $('entry-title').value.trim(), text: $('entry-text').value.trim()};
   try {
+    if (entry.kind === 'expectation') {
+      entry.scope = $('entry-scope').value.trim();
+      entry.check = $('entry-check').value.trim();
+      if (!entry.scope || !entry.check) throw new Error('Укажите, когда применять ожидание и как его проверить.');
+    }
     let conflict;
     await save(s => { conflict = edit(s, entry, entry.id, editingRevision); });
     document.querySelector('[name="library-kind"][value="' + entry.kind + '"]').checked = true;
@@ -419,6 +446,7 @@ $('files').addEventListener('change', async event => {
   const files = Array.from(event.target.files);
   event.target.value = '';
   const kind = libraryKind();
+  if (kind === 'expectation') return;
   const imported = [];
   const skipped = [];
   for (const file of files) {
@@ -529,7 +557,7 @@ $('restore').addEventListener('change', async event => {
       for (const entry of backup.library) {
         const existing = s.library[entry.id]?.entry;
         if (!existing) edit(s, entry);
-        else if (existing.kind !== entry.kind || existing.title !== entry.title || existing.text !== entry.text) {
+        else if (['kind', 'title', 'text', 'scope', 'check'].some(key => existing[key] !== entry[key])) {
           edit(s, {...entry, id: crypto.randomUUID(), title: entry.title.slice(0, 160) + ' (из копии)'});
         }
       }

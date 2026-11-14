@@ -1,4 +1,4 @@
-export const kindNames = {skill: 'Skill', memory: 'Память', document: 'Документ'};
+export const kindNames = {skill: 'Skill', memory: 'Память', document: 'Документ', expectation: 'Ожидание'};
 export const textLimit = 200_000;
 const terms = text => text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [];
 const bytes = text => new TextEncoder().encode(text).length;
@@ -8,7 +8,12 @@ export function validEntry(entry) {
     && Object.hasOwn(kindNames, entry.kind)
     && typeof entry.title === 'string' && entry.title.trim().length > 0 && entry.title.length <= 180
     && typeof entry.text === 'string' && entry.text.trim().length > 0 && bytes(entry.text) <= textLimit
-    && (entry.conflict === undefined || entry.conflict === true);
+    && (entry.conflict === undefined || entry.conflict === true)
+    && (entry.kind !== 'expectation' || (
+      typeof entry.scope === 'string' && !!entry.scope.trim() && entry.scope.length <= 1000
+      && typeof entry.check === 'string' && !!entry.check.trim() && entry.check.length <= 2000
+      && bytes(entry.text + entry.scope + entry.check) <= textLimit
+    ));
 }
 
 function skillHeader(text) {
@@ -21,10 +26,21 @@ export function entryTitle(entry) {
   return name ? entry.title.replace(/^skill\.md/i, name) : entry.title;
 }
 
+const stop = new Set(['как', 'что', 'для', 'этот', 'этого', 'это', 'предложи', 'изучи', 'сделай', 'нужно',
+  'можно', 'чтобы', 'если', 'только', 'пока', 'сейчас', 'скажи', 'или', 'уже', 'какой']);
+const tokens = text => new Set(terms(text.replaceAll('ё', 'е')).filter(word => !stop.has(word)).map(word => word.slice(0, 5)));
+
+export function selectExpectations(task, library) {
+  const normalize = text => [...tokens(text.toLowerCase())].map(word =>
+    /^(?:окно|окна|окну|окнам|окнах|окном|окнами|окне|окон)$/.test(word) ? 'окно' : word);
+  const words = new Set(normalize(task));
+  return library.filter(entry => entry.kind === 'expectation').map(entry => ({
+    entry,
+    rank: [...new Set(normalize(entry.scope))].filter(word => words.has(word)).length
+  })).filter(({rank}) => rank > 0).sort((a, b) => b.rank - a.rank).slice(0, 3).map(({entry}) => entry);
+}
+
 export function selectSources(task, library) {
-  const stop = new Set(['как', 'что', 'для', 'этот', 'этого', 'это', 'предложи', 'изучи', 'сделай', 'нужно',
-    'можно', 'чтобы', 'если', 'только', 'пока', 'сейчас', 'скажи', 'или', 'уже', 'какой']);
-  const tokens = text => new Set(terms(text.replaceAll('ё', 'е')).filter(word => !stop.has(word)).map(word => word.slice(0, 5)));
   const words = tokens(task);
   const score = text => [...tokens(text)].filter(word => words.has(word)).length;
   const names = ' ' + terms(task).join(' ') + ' ';
@@ -44,7 +60,7 @@ export function selectSources(task, library) {
   const automatic = skills.find(skill => skill.rank >= 2);
   const chosenSkills = named.length ? named : automatic ? [automatic] : [];
 
-  const materials = library.filter(entry => entry.kind !== 'skill').flatMap(entry => {
+  const materials = library.filter(entry => entry.kind === 'memory' || entry.kind === 'document').flatMap(entry => {
     const paragraphs = entry.text.split(/\n\s*\n/);
     const chunks = paragraphs.flatMap(paragraph => paragraph.match(/[\s\S]{1,1800}/g) || []);
     const matches = chunks.map((text, index) => ({text, index, rank: score(text)}))
@@ -56,7 +72,18 @@ export function selectSources(task, library) {
       : chunks[0];
     return [{...entry, text, rank}];
   }).sort((a, b) => b.rank - a.rank);
-  return [...chosenSkills, ...materials].slice(0, 6);
+  return [...[...chosenSkills, ...materials].slice(0, 6), ...selectExpectations(task, library)];
+}
+
+export function sourceBlock(item) {
+  const body = '### ' + item.title + '\n' + item.text;
+  return item.kind === 'expectation'
+    ? body + '\nКогда применять — ' + item.scope + '\nКак проверить — ' + item.check
+    : body;
+}
+
+export function expectationBlock(items) {
+  return items.length ? '## Ожидания по умолчанию\n' + items.map(sourceBlock).join('\n\n') : '';
 }
 
 export function buildPrompt(task, sources) {
@@ -64,11 +91,12 @@ export function buildPrompt(task, sources) {
   return [
     '## Задача\n' + task.trim(),
     '## Ожидаемый результат\nВыполни задачу в указанном формате. Если формат не задан, выбери подходящий. Если необходимого материала не хватает, укажи какого.',
+    expectationBlock(sources.filter(item => item.kind === 'expectation')),
     ...sections.flatMap(([label, kind]) => {
       const items = sources.filter(source => source.kind === kind);
-      return items.length ? ['## ' + label + '\n' + items.map(item => '### ' + item.title + '\n' + item.text).join('\n\n')] : [];
+      return items.length ? ['## ' + label + '\n' + items.map(sourceBlock).join('\n\n')] : [];
     }),
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 }
 
 const providers = {
