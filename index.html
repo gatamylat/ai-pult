@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="./surf-touch.png">
 <link rel="icon" href="./surf-icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Playfair+Display:wght@500;600&amp;display=swap">
-<link rel="stylesheet" href="./surf.css?v=6">
+<link rel="stylesheet" href="./surf.css?v=7">
 <title>AI Пульт</title>
 </head>
 <body>
@@ -93,86 +93,95 @@
 </div>
 
 <dialog id="library" aria-labelledby="library-heading">
-  <div class="panel-head"><h2 id="library-heading">Библиотека</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-  <div id="library-browser">
-    <fieldset class="segment library-tabs" aria-label="Раздел библиотеки">
-      <label><input type="radio" name="library-kind" value="memory" checked><span>Память</span></label>
-      <label><input type="radio" name="library-kind" value="skill"><span>Скиллы</span></label>
-      <label><input type="radio" name="library-kind" value="document"><span>Документы</span></label>
-      <label><input type="radio" name="library-kind" value="expectation"><span>Ожидания</span></label>
-    </fieldset>
-    <div class="row library-actions">
-      <button id="new-entry" type="button">Добавить запись</button>
-      <label class="upload">Загрузить файлы
-        <input type="file" id="files" accept=".txt,.md,.markdown,.csv,.json,.log" multiple>
-      </label>
+  <div class="dialog-panel">
+    <div class="panel-head"><h2 id="library-heading">Библиотека</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div id="library-browser">
+      <fieldset class="segment library-tabs" aria-label="Раздел библиотеки">
+        <label><input type="radio" name="library-kind" value="memory" checked><span>Память</span></label>
+        <label><input type="radio" name="library-kind" value="skill"><span>Скиллы</span></label>
+        <label><input type="radio" name="library-kind" value="document"><span>Документы</span></label>
+        <label><input type="radio" name="library-kind" value="expectation"><span>Ожидания</span></label>
+      </fieldset>
+      <div class="row library-actions">
+        <button id="new-entry" type="button">Добавить запись</button>
+        <label class="upload">Загрузить файлы
+          <input type="file" id="files" accept=".txt,.md,.markdown,.csv,.json,.log" multiple>
+        </label>
+      </div>
+      <ul id="library-list"></ul>
     </div>
-    <ul id="library-list"></ul>
+    <p id="library-status" role="status"></p>
+    <form id="entry-form" hidden>
+      <h3 id="entry-heading" tabindex="-1"></h3>
+      <label>Тип<select id="entry-kind"><option value="skill">Skill</option><option value="memory">Память</option><option value="document">Документ</option><option value="expectation">Ожидание</option></select></label>
+      <label>Название<input id="entry-title" required maxlength="180"></label>
+      <label><span id="entry-text-label">Текст</span><textarea id="entry-text" required rows="7"></textarea></label>
+      <div id="expectation-fields" hidden>
+        <label>Когда применять<input id="entry-scope" maxlength="1000" placeholder="Например, окна и модальные диалоги"></label>
+        <label>Как проверить<textarea id="entry-check" rows="3" maxlength="2000" placeholder="Например, нажать внутри окна, затем снаружи"></textarea></label>
+      </div>
+      <div class="row"><button class="primary" type="submit">Сохранить</button><button id="cancel-entry" type="button">Назад</button><button id="delete-entry" class="delete-entry" type="button" hidden>Удалить</button></div>
+    </form>
   </div>
-  <p id="library-status" role="status"></p>
-  <form id="entry-form" hidden>
-    <h3 id="entry-heading" tabindex="-1"></h3>
-    <label>Тип<select id="entry-kind"><option value="skill">Skill</option><option value="memory">Память</option><option value="document">Документ</option><option value="expectation">Ожидание</option></select></label>
-    <label>Название<input id="entry-title" required maxlength="180"></label>
-    <label><span id="entry-text-label">Текст</span><textarea id="entry-text" required rows="7"></textarea></label>
-    <div id="expectation-fields" hidden>
-      <label>Когда применять<input id="entry-scope" maxlength="1000" placeholder="Например, окна и модальные диалоги"></label>
-      <label>Как проверить<textarea id="entry-check" rows="3" maxlength="2000" placeholder="Например, нажать внутри окна, затем снаружи"></textarea></label>
-    </div>
-    <div class="row"><button class="primary" type="submit">Сохранить</button><button id="cancel-entry" type="button">Назад</button><button id="delete-entry" class="delete-entry" type="button" hidden>Удалить</button></div>
-  </form>
+  <button class="dialog-dismiss" type="button" data-close tabindex="-1" aria-label="Закрыть окно"></button>
 </dialog>
 
 <dialog id="history" aria-labelledby="history-heading">
-  <div class="panel-head"><h2 id="history-heading">История</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-  <ul id="history-list"></ul>
-  <section id="history-entry" hidden>
-    <div class="row">
-      <button id="history-back" type="button">Назад</button>
-      <button id="history-continue" type="button">Продолжить в чате</button>
-    </div>
-    <p id="history-status" role="status" hidden>Дождитесь завершения текущего запроса, чтобы продолжить эту переписку.</p>
-    <h3 id="history-title"></h3>
-    <p id="history-mode"></p>
-    <p id="history-note"></p>
-    <div id="history-answer" class="markdown"></div>
-  </section>
+  <div class="dialog-panel">
+    <div class="panel-head"><h2 id="history-heading">История</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <ul id="history-list"></ul>
+    <section id="history-entry" hidden>
+      <div class="row">
+        <button id="history-back" type="button">Назад</button>
+        <button id="history-continue" type="button">Продолжить в чате</button>
+      </div>
+      <p id="history-status" role="status" hidden>Дождитесь завершения текущего запроса, чтобы продолжить эту переписку.</p>
+      <h3 id="history-title"></h3>
+      <p id="history-mode"></p>
+      <p id="history-note"></p>
+      <div id="history-answer" class="markdown"></div>
+    </section>
+  </div>
+  <button class="dialog-dismiss" type="button" data-close tabindex="-1" aria-label="Закрыть окно"></button>
 </dialog>
 
 <dialog id="settings">
-  <div class="panel-head"><h2>Настройки</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-  <section class="setting-section">
-    <label>Тема
-      <select id="theme">
-        <option value="system">Как в системе</option>
-        <option value="light">Светлая</option>
-        <option value="dark">Тёмная</option>
-      </select>
-    </label>
-  </section>
-  <section class="setting-section"><h3>Модели</h3>
-  <label>Ключ Claude<input id="claude-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-  <label>Ключ DeepSeek<input id="deepseek-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-  <button id="save-keys" type="button">Сохранить ключи</button>
-  </section>
-  <section class="setting-section"><h3>Личная библиотека на двух устройствах</h3>
-  <p>Сначала подключите личный код, затем добавляйте материалы. На втором устройстве введите тот же код. Чтобы перенести уже добавленные локальные материалы, используйте резервную копию.</p>
-  <label>Личный код<input id="sync-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32"></label>
-  <div class="row">
-    <button id="generate-code" type="button">Создать код</button>
-    <button id="connect" type="button">Подключить</button>
-    <button id="disconnect" type="button" hidden>Отключить</button>
+  <div class="dialog-panel">
+    <div class="panel-head"><h2>Настройки</h2><button class="icon-button" data-close type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <section class="setting-section">
+      <label>Тема
+        <select id="theme">
+          <option value="system">Как в системе</option>
+          <option value="light">Светлая</option>
+          <option value="dark">Тёмная</option>
+        </select>
+      </label>
+    </section>
+    <section class="setting-section"><h3>Модели</h3>
+    <label>Ключ Claude<input id="claude-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label>Ключ DeepSeek<input id="deepseek-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <button id="save-keys" type="button">Сохранить ключи</button>
+    </section>
+    <section class="setting-section"><h3>Личная библиотека на двух устройствах</h3>
+    <p>Сначала подключите личный код, затем добавляйте материалы. На втором устройстве введите тот же код. Чтобы перенести уже добавленные локальные материалы, используйте резервную копию.</p>
+    <label>Личный код<input id="sync-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32"></label>
+    <div class="row">
+      <button id="generate-code" type="button">Создать код</button>
+      <button id="connect" type="button">Подключить</button>
+      <button id="disconnect" type="button" hidden>Отключить</button>
+    </div>
+    <p id="sync-status" role="status">Локальная библиотека</p>
+    </section>
+    <section class="setting-section"><h3>Резервная копия</h3>
+    <div class="row">
+      <button id="backup" type="button">Скачать копию</button>
+      <label class="upload">Восстановить из файла<input type="file" id="restore" accept=".json"></label>
+    </div>
+    </section>
+    <p id="settings-status" role="status"></p>
   </div>
-  <p id="sync-status" role="status">Локальная библиотека</p>
-  </section>
-  <section class="setting-section"><h3>Резервная копия</h3>
-  <div class="row">
-    <button id="backup" type="button">Скачать копию</button>
-    <label class="upload">Восстановить из файла<input type="file" id="restore" accept=".json"></label>
-  </div>
-  </section>
-  <p id="settings-status" role="status"></p>
+  <button class="dialog-dismiss" type="button" data-close tabindex="-1" aria-label="Закрыть окно"></button>
 </dialog>
-<script type="module" src="./pult-v04.js?v=7"></script>
+<script type="module" src="./pult-v04.js?v=8"></script>
 </body>
 </html>

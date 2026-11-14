@@ -95,7 +95,7 @@ function renderHistory() {
       renderMarkdown($('history-answer'), thread.messages.at(-1).content);
       $('history-list').hidden = true;
       $('history-entry').hidden = false;
-      $('history').scrollTop = 0;
+      $('history').querySelector('.dialog-panel').scrollTop = $('history').scrollTop = 0;
       $('history-back').focus({preventScroll: true});
     });
     open.dataset.threadId = id;
@@ -107,7 +107,7 @@ function renderHistory() {
 function showHistoryList() {
   $('history-list').hidden = false;
   $('history-entry').hidden = true;
-  $('history').scrollTop = 0;
+  $('history').querySelector('.dialog-panel').scrollTop = $('history').scrollTop = 0;
   const previous = Array.from($('history-list').querySelectorAll('button')).find(node => node.dataset.threadId === historyId);
   historyId = undefined;
   previous?.focus();
@@ -173,7 +173,7 @@ function openEditor(entry) {
   $('entry-scope').value = entry?.scope ?? '';
   $('entry-check').value = entry?.check ?? '';
   renderEntryFields();
-  $('library').scrollTop = 0;
+  $('library').querySelector('.dialog-panel').scrollTop = $('library').scrollTop = 0;
   $('entry-heading').focus({preventScroll: true});
 }
 
